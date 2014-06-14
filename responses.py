@@ -29,7 +29,7 @@ if six.PY2:
 else:
     from io import BytesIO as BufferIO
 
-from collections import namedtuple, Sequence, Sized
+from collections import namedtuple, Sequence, Sized, Iterator
 from functools import wraps
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError
@@ -61,6 +61,36 @@ class CallList(Sequence, Sized):
         self._calls = []
 
 
+class Response(object):
+    def __init__(self, body='', status=200, adding_headers=None,
+                 stream=False, content_type='text/plain', side_effect=None):
+
+        # body must be bytes
+        if isinstance(body, six.text_type):
+            body = body.encode('utf-8')
+
+        # Get iterator of a container
+        if isinstance(side_effect, Sequence):
+            side_effect = iter(side_effect)
+
+        self.body = body
+        self.status = status
+        self.adding_headers = adding_headers
+        self.stream = stream
+        self.content_type = content_type
+        self.side_effect = side_effect
+
+    def _as_dict(self):
+        return {
+            'body': self.body,
+            'content_type': self.content_type,
+            'status': self.status,
+            'adding_headers': self.adding_headers,
+            'stream': self.stream,
+            'side_effect': self.side_effect,
+        }
+
+
 class RequestsMock(object):
     DELETE = 'DELETE'
     GET = 'GET'
@@ -78,28 +108,22 @@ class RequestsMock(object):
         self._urls = []
         self._calls.reset()
 
-    def add(self, method, url, body='', match_querystring=False,
-            status=200, adding_headers=None, stream=False,
-            content_type='text/plain'):
+    def add(self, method, url, match_querystring=False, *args, **kwargs):
+        response = Response(*args, **kwargs)
+
         # ensure the url has a default path set
         if url.count('/') == 2:
             url = url.replace('?', '/?', 1) if match_querystring \
                 else url + '/'
 
-        # body must be bytes
-        if isinstance(body, six.text_type):
-            body = body.encode('utf-8')
-
-        self._urls.append({
+        match = {
             'url': url,
             'method': method,
-            'body': body,
-            'content_type': content_type,
             'match_querystring': match_querystring,
-            'status': status,
-            'adding_headers': adding_headers,
-            'stream': stream,
-        })
+        }
+
+        match.update(response._as_dict())
+        self._urls.append(match)
 
     @property
     def calls(self):
@@ -139,6 +163,24 @@ class RequestsMock(object):
 
     def _on_request(self, request, **kwargs):
         match = self._find_match(request)
+
+        if match and match['side_effect'] is not None:
+            # Call side_effect if it is callable
+            if hasattr(match['side_effect'], '__call__'):
+                side_effect = match['side_effect']
+                response = side_effect(request)
+                if response is not None:
+                    match = response._as_dict()
+                else:
+                    match = response
+
+            # Get next item if side_effect is an iterator
+            if isinstance(match['side_effect'], Iterator):
+                response = match['side_effect'].next()
+                if response is not None:
+                    match = response._as_dict()
+                else:
+                    match = response
 
         # TODO(dcramer): find the correct class for this
         if match is None:

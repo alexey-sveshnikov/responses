@@ -89,3 +89,44 @@ def test_accept_string_body():
 
     run()
     assert_reset()
+
+
+def test_side_effect_callback():
+    @responses.activate
+    def run():
+        def callback(request):
+            return responses.Response(
+                body='test',
+            )
+
+        url = 'http://example.com/'
+        responses.add(
+            responses.GET, url,
+            side_effect=callback
+        )
+        resp = requests.get(url)
+        assert_response(resp, 'test')
+
+    run()
+    assert_reset()
+
+
+def test_side_effect_sequence():
+    @responses.activate
+    def run():
+        url = 'http://example.com/'
+        responses.add(
+            responses.GET, url,
+            side_effect=[
+                responses.Response('test1'),
+                responses.Response('test2'),
+            ],
+        )
+        resp = requests.get(url)
+        assert_response(resp, 'test1')
+
+        resp = requests.get(url)
+        assert_response(resp, 'test2')
+
+    run()
+    assert_reset()
