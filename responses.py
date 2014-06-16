@@ -75,14 +75,28 @@ class Response(object):
         self.stream = stream
         self.content_type = content_type
 
-    def _as_dict(self):
-        return {
-            'body': self.body,
-            'content_type': self.content_type,
-            'status': self.status,
-            'adding_headers': self.adding_headers,
-            'stream': self.stream,
+    def _as_http_response(self):
+        headers = {
+            'Content-Type': self.content_type,
         }
+        if self.adding_headers:
+            headers.update(self.adding_headers)
+
+        return HTTPResponse(
+            status=self.status,
+            body=BufferIO(self.body),
+            headers=headers,
+            preload_content=False,
+        )
+
+    def _as_requests_response(self, request):
+        adapter = HTTPAdapter()
+
+        response = adapter.build_response(request, self._as_http_response())
+        if not self.stream:
+            response.content  # NOQA
+
+        return response
 
 
 class RequestsMock(object):
@@ -121,9 +135,9 @@ class RequestsMock(object):
             'method': method,
             'match_querystring': match_querystring,
             'side_effect': side_effect,
+            'response': response,
         }
 
-        match.update(response._as_dict())
         self._urls.append(match)
 
     @property
@@ -162,52 +176,32 @@ class RequestsMock(object):
 
         return None
 
-    def _on_request(self, request, **kwargs):
-        match = self._find_match(request)
+    def _get_response(self, match, request):
+        if match is None:
+            return None
 
-        if match and match['side_effect'] is not None:
-            # Call side_effect if it is callable
+        if match['side_effect'] is not None:
             if hasattr(match['side_effect'], '__call__'):
                 side_effect = match['side_effect']
-                response = side_effect(request)
-                if response is not None:
-                    match = response._as_dict()
-                else:
-                    match = response
+                return side_effect(request)
             elif isinstance(match['side_effect'], Iterator):
-                # Get next item if side_effect is an iterator
-                response = next(match['side_effect'])
-                if response is not None:
-                    match = response._as_dict()
-                else:
-                    match = response
+                return next(match['side_effect'])
+        else:
+            return match['response']
+
+    def _on_request(self, request, **kwargs):
+        match = self._find_match(request)
+        response = self._get_response(match, request)
 
         # TODO(dcramer): find the correct class for this
-        if match is None:
+        if response is None:
             error_msg = 'Connection refused: {0}'.format(request.url)
             response = ConnectionError(error_msg)
 
             self._calls.add(request, response)
             raise response
 
-        headers = {
-            'Content-Type': match['content_type'],
-        }
-        if match['adding_headers']:
-            headers.update(match['adding_headers'])
-
-        response = HTTPResponse(
-            status=match['status'],
-            body=BufferIO(match['body']),
-            headers=headers,
-            preload_content=False,
-        )
-
-        adapter = HTTPAdapter()
-
-        response = adapter.build_response(request, response)
-        if not match['stream']:
-            response.content  # NOQA
+        response = response._as_requests_response(request)
 
         self._calls.add(request, response)
 
