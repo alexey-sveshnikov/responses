@@ -176,7 +176,7 @@ class RequestsMock(object):
 
             # Get next item if side_effect is an iterator
             if isinstance(match['side_effect'], Iterator):
-                response = match['side_effect'].next()
+                response = next(match['side_effect'])
                 if response is not None:
                     match = response._as_dict()
                 else:
