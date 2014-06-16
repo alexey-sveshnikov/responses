@@ -63,22 +63,17 @@ class CallList(Sequence, Sized):
 
 class Response(object):
     def __init__(self, body='', status=200, adding_headers=None,
-                 stream=False, content_type='text/plain', side_effect=None):
+                 stream=False, content_type='text/plain'):
 
         # body must be bytes
         if isinstance(body, six.text_type):
             body = body.encode('utf-8')
-
-        # Get iterator of a container
-        if isinstance(side_effect, Sequence):
-            side_effect = iter(side_effect)
 
         self.body = body
         self.status = status
         self.adding_headers = adding_headers
         self.stream = stream
         self.content_type = content_type
-        self.side_effect = side_effect
 
     def _as_dict(self):
         return {
@@ -87,7 +82,6 @@ class Response(object):
             'status': self.status,
             'adding_headers': self.adding_headers,
             'stream': self.stream,
-            'side_effect': self.side_effect,
         }
 
 
@@ -108,7 +102,9 @@ class RequestsMock(object):
         self._urls = []
         self._calls.reset()
 
-    def add(self, method, url, match_querystring=False, *args, **kwargs):
+    def add(self, method, url, match_querystring=False, side_effect=None,
+            *args, **kwargs):
+
         response = Response(*args, **kwargs)
 
         # ensure the url has a default path set
@@ -116,10 +112,15 @@ class RequestsMock(object):
             url = url.replace('?', '/?', 1) if match_querystring \
                 else url + '/'
 
+        # Get iterator of a container
+        if isinstance(side_effect, Sequence):
+            side_effect = iter(side_effect)
+
         match = {
             'url': url,
             'method': method,
             'match_querystring': match_querystring,
+            'side_effect': side_effect,
         }
 
         match.update(response._as_dict())
@@ -173,9 +174,8 @@ class RequestsMock(object):
                     match = response._as_dict()
                 else:
                     match = response
-
-            # Get next item if side_effect is an iterator
-            if isinstance(match['side_effect'], Iterator):
+            elif isinstance(match['side_effect'], Iterator):
+                # Get next item if side_effect is an iterator
                 response = next(match['side_effect'])
                 if response is not None:
                     match = response._as_dict()
