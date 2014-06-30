@@ -31,7 +31,7 @@ else:
 
 from collections import namedtuple, Sequence, Sized, Iterator
 from functools import wraps
-from urlparse import urlparse, parse_qsl
+from six.moves.urllib.parse import urlparse, parse_qsl
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError
 try:
