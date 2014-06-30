@@ -95,16 +95,19 @@ def test_side_effect_callback():
     @responses.activate
     def run():
         def callback(request):
+            assert request.params['one'] == '1'
+            assert request.data['two'] == '2'
+            assert request.method == 'POST'
             return responses.Response(
                 body='test',
             )
 
         url = 'http://example.com/'
         responses.add(
-            responses.GET, url,
+            responses.POST, url,
             side_effect=callback
         )
-        resp = requests.get(url)
+        resp = requests.post(url, params={'one': 1}, data={'two': 2})
         assert_response(resp, 'test')
 
     run()

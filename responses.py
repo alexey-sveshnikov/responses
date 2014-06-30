@@ -31,6 +31,7 @@ else:
 
 from collections import namedtuple, Sequence, Sized, Iterator
 from functools import wraps
+from urlparse import urlparse, parse_qsl
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError
 try:
@@ -59,6 +60,33 @@ class CallList(Sequence, Sized):
 
     def reset(self):
         self._calls = []
+
+
+class Request(object):
+    '''
+    Simple object that is used to pass request info to side_effect callbacks.
+    '''
+
+    def __init__(self, method, url, headers=None, params=None, data=None):
+        self.method = method
+        self.url = url
+        self.headers = headers
+        self.params = params
+        self.data = data
+
+    @classmethod
+    def _from_prepared_request(cls, request):
+        '''
+        Create a request from requests PreparedRequest object
+        '''
+        parsed_url = urlparse(request.url)
+        return Request(
+            request.method,
+            request.url,
+            headers=request.headers,
+            params=dict(parse_qsl(parsed_url.query)),
+            data=dict(parse_qsl(request.body)),
+        )
 
 
 class Response(object):
@@ -183,7 +211,7 @@ class RequestsMock(object):
         if match['side_effect'] is not None:
             if hasattr(match['side_effect'], '__call__'):
                 side_effect = match['side_effect']
-                return side_effect(request)
+                return side_effect(Request._from_prepared_request(request))
             elif isinstance(match['side_effect'], Iterator):
                 return next(match['side_effect'])
         else:
